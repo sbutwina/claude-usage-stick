@@ -28,7 +28,3 @@ float usageProjectedPct(const UsageData& u);
 // on the org PERIOD bar.
 const char* usageSlotCaption(const UsageData& u, int idx);       // "RESET" | "PROJ"
 const char* usageSlotCaptionShort(const UsageData& u, int idx);  // "RST"   | "PRJ"
-
-#ifdef PANEL_DEBUG
-void apiSelfCheck();
-#endif

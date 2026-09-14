@@ -243,6 +243,8 @@ static void handleState() {
     u["acct"]     = g_usage.acct == ACCT_ORG ? "org" : "pro";
     u["status"]   = g_usage.status;
     u["proj"]     = usageProjectedPct(g_usage);
+    u["period_sec"]      = g_settings.periodSec;              // 0 = not yet measured
+    u["period_measured"] = g_settings.periodSec != 0;
 
     JsonObject m = d["models"].to<JsonObject>();
     m["haiku"]  = g_models.haikuUp;

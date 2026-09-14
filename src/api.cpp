@@ -1,6 +1,9 @@
 #include "api.h"
 #include "config.h"
 #include "certs.h"
+#include "period.h"
+#include "settings.h"
+#include "app_state.h"
 #include <Arduino.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -17,52 +20,6 @@ static const char* RL_HEADERS[] = {
     "anthropic-ratelimit-unified-5h-status",
 };
 static const int RL_HEADER_COUNT = sizeof(RL_HEADERS) / sizeof(RL_HEADERS[0]);
-
-// NTP sanity floor (mirrors src/history.cpp's TIME_SANE_EPOCH).
-static const uint32_t TIME_SANE_EPOCH = 1700000000UL;
-
-static bool isLeapYear(int year) {
-    return (year % 4 == 0) && (year % 100 != 0 || year % 400 == 0);
-}
-
-static int daysInMonth(int year1900, int mon) {
-    static const int kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    int year = year1900 + 1900;
-    if (mon == 1 && isLeapYear(year)) return 29;
-    return kDays[mon];
-}
-
-// Enterprise spend limits are billed monthly; the headers expose only the
-// period end, so the period start is that timestamp one calendar month
-// earlier (day-of-month clamped to the shorter month).
-static time_t periodStartFor(time_t end) {
-    struct tm tmEnd;
-    localtime_r(&end, &tmEnd);
-
-    tmEnd.tm_mon--;
-    if (tmEnd.tm_mon < 0) {
-        tmEnd.tm_mon = 11;
-        tmEnd.tm_year--;
-    }
-    int maxDay = daysInMonth(tmEnd.tm_year, tmEnd.tm_mon);
-    if (tmEnd.tm_mday > maxDay) tmEnd.tm_mday = maxDay;
-
-    tmEnd.tm_isdst = -1;
-    return mktime(&tmEnd);
-}
-
-static float periodElapsedPct(uint32_t periodEnd) {
-    if (periodEnd == 0) return 0.0f;
-    time_t now = time(nullptr);
-    if ((uint32_t)now < TIME_SANE_EPOCH) return 0.0f;
-
-    time_t end = (time_t)periodEnd;
-    time_t start = periodStartFor(end);
-    if (start <= 0 || end <= start) return 0.0f;
-
-    float pct = 100.0f * (float)(now - start) / (float)(end - start);
-    return constrain(pct, 0.0f, 100.0f);
-}
 
 bool fetchUsage(const char* token, UsageData& out) {
     out.status[0] = '\0';
@@ -142,7 +99,40 @@ bool fetchUsage(const char* token, UsageData& out) {
     } else {
         out.h5           = ovu.toFloat() * 100.0f;
         out.h5ResetEpoch = (uint32_t)ovr.toInt();
-        out.d7           = periodElapsedPct(out.h5ResetEpoch);
+
+        // The reset epoch changing IS a period rollover; the gap between the
+        // old and new epoch IS the real period length. Measure it once,
+        // persist it, and use it thereafter instead of assuming a calendar
+        // month.
+        // A missing or unparseable reset header gives 0 — never let that
+        // overwrite a learned baseline, or the next rollover can't be measured.
+        uint32_t lastReset = (uint32_t)g_settings.lastResetEpoch;
+        if (out.h5ResetEpoch != 0 && lastReset != 0 && out.h5ResetEpoch != lastReset) {
+            if (out.h5ResetEpoch > lastReset) {
+                uint32_t measured = out.h5ResetEpoch - lastReset;
+                bool plausible = periodLooksPlausible(measured);
+                Serial.printf("[API] period rolled over: measured %us (%ud) %s\n",
+                              (unsigned)measured, (unsigned)(measured / 86400),
+                              plausible ? "accepted" : "rejected as implausible");
+                if (plausible && (int32_t)measured != g_settings.periodSec) {
+                    g_settings.periodSec = (int32_t)measured;
+                    settingsPutInt("period_sec", g_settings.periodSec);
+                }
+            } else {
+                // reset epoch went backwards: account change or clock issue.
+                // treat as a new baseline, don't measure anything from it.
+                Serial.printf("[API] org reset epoch went backwards (was %u, now %u); "
+                              "treating as new baseline\n",
+                              (unsigned)lastReset, (unsigned)out.h5ResetEpoch);
+            }
+        }
+        if (out.h5ResetEpoch != 0 && out.h5ResetEpoch != lastReset) {
+            g_settings.lastResetEpoch = (int32_t)out.h5ResetEpoch;
+            settingsPutInt("last_reset", g_settings.lastResetEpoch);
+        }
+
+        out.d7           = periodElapsedPct(out.h5ResetEpoch, (uint32_t)time(nullptr),
+                                             (uint32_t)g_settings.periodSec);
         out.d7ResetEpoch = 0;
         out.acct         = ACCT_ORG;
         strlcpy(out.status, stU.c_str(), sizeof(out.status));
@@ -188,60 +178,3 @@ const char* usageSlotCaptionShort(const UsageData& u, int idx) {
     if (idx < 0 || idx > 1) return "";
     return (u.acct == ACCT_ORG) ? kOrg[idx] : kReset[idx];
 }
-
-#ifdef PANEL_DEBUG
-// Runnable check for periodElapsedPct's calendar-month step-back.
-// Call apiSelfCheck() from setup() manually when debugging.
-void apiSelfCheck() {
-    // 1. zero period end -> 0
-    float r1 = periodElapsedPct(0);
-    Serial.printf("[SELFCHECK] periodElapsedPct(0)==0: %s (%f)\n", r1 == 0.0f ? "PASS" : "FAIL", r1);
-
-    // 2. Mar 31 period end -> start clamps to Feb 28/29, not Mar 2/3.
-    struct tm tmMar31 = {};
-    tmMar31.tm_year = 2025 - 1900;
-    tmMar31.tm_mon  = 2; // March (0-indexed)
-    tmMar31.tm_mday = 31;
-    tmMar31.tm_hour = 12;
-    tmMar31.tm_isdst = -1;
-    time_t marEnd = mktime(&tmMar31);
-    time_t start = periodStartFor(marEnd);
-    struct tm tmStart;
-    localtime_r(&start, &tmStart);
-    bool pass2 = (tmStart.tm_mon == 1) && (tmStart.tm_mday == 28 || tmStart.tm_mday == 29);
-    Serial.printf("[SELFCHECK] Mar31 step-back clamps to Feb 28/29: %s (mon=%d mday=%d)\n",
-                  pass2 ? "PASS" : "FAIL", tmStart.tm_mon, tmStart.tm_mday);
-
-    // 3. far-future period end -> result in [0,100]
-    time_t future = time(nullptr) + (3600L * 24 * 20); // ~20 days out
-    if ((uint32_t)time(nullptr) < TIME_SANE_EPOCH) future = TIME_SANE_EPOCH + (3600L * 24 * 20);
-    float pct = periodElapsedPct((uint32_t)future);
-    bool pass3 = pct >= 0.0f && pct <= 100.0f;
-    Serial.printf("[SELFCHECK] far-future pct in [0,100]: %s (%f)\n", pass3 ? "PASS" : "FAIL", pct);
-
-    // 4. Pro/Max account -> projection undefined regardless of h5/d7
-    UsageData uPro = {};
-    uPro.acct = ACCT_PRO;
-    uPro.h5 = 50.0f;
-    uPro.d7 = 50.0f;
-    float r4 = usageProjectedPct(uPro);
-    Serial.printf("[SELFCHECK] Pro acct projection==-1: %s (%f)\n", r4 == -1.0f ? "PASS" : "FAIL", r4);
-
-    // 5. org acct, too early in period -> undefined
-    UsageData uEarly = {};
-    uEarly.acct = ACCT_ORG;
-    uEarly.h5 = 10.0f;
-    uEarly.d7 = 2.0f;
-    float r5 = usageProjectedPct(uEarly);
-    Serial.printf("[SELFCHECK] org early-period projection==-1: %s (%f)\n", r5 == -1.0f ? "PASS" : "FAIL", r5);
-
-    // 6. org acct, past the noise floor -> h5/d7*100
-    UsageData uOrg = {};
-    uOrg.acct = ACCT_ORG;
-    uOrg.h5 = 60.0f;
-    uOrg.d7 = 30.0f;
-    float r6 = usageProjectedPct(uOrg);
-    bool pass6 = fabsf(r6 - 200.0f) < 0.01f;
-    Serial.printf("[SELFCHECK] org projection 60/30->200: %s (%f)\n", pass6 ? "PASS" : "FAIL", r6);
-}
-#endif

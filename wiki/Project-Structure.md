@@ -17,10 +17,12 @@ src/
   screens.cpp/h   — screen carousel orchestration (Dust)
   history.cpp/h   — 7-day usage ring on LittleFS (Dust)
   news.cpp/h      — streaming RSS fetch of Anthropic news (Dust)
+  period.cpp/h    — Enterprise billing-period date math (no Arduino deps, builds on the host)
   ui.cpp/h        — all LCD drawing (boot, PIN, dashboard, chart, news, clock)
   config.h        — tunables (poll interval, timeouts, PIN attempts, feed URL)
 server/
   usage_proxy.py  — optional local caching proxy (reads token from macOS Keychain)
+test/             — host-side tests (plain g++, no PlatformIO); see below
 web/              — the browser-based flasher published to GitHub Pages
 web/panel/        — source + generator of the device's own web panel page
 platformio.ini    — one build env per board
@@ -43,6 +45,16 @@ python3 web/src/build.py
 The board list, firmware versions, and the CSS 3D board models are data inside `web/src/build.py`. Commit the regenerated files with your source change. More detail in [`web/README.md`](https://github.com/oauramos/claude-usage-stick/blob/main/web/README.md).
 
 The device's own [web panel](Web-Panel) works the same way: edit `web/panel/panel.html`, run `python3 web/panel/build.py`, and commit the regenerated `src/panel_html.h` (the page ships inside the firmware, gzipped).
+
+## Running the host tests
+
+`test/` covers logic that doesn't need hardware — currently the Enterprise billing-period date math in `src/period.cpp`. Run it with:
+
+```bash
+test/run.sh
+```
+
+That compiles `src/period.cpp` and `test/test_period_math.cpp` with plain `g++` (no PlatformIO, no framework) and runs the asserts, printing one `[PASS]`/`[FAIL]` line per check. It runs in CI (`.github/workflows/test.yml`) on every push and pull request.
 
 ## Adding a board
 

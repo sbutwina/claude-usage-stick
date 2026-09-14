@@ -30,6 +30,8 @@ void settingsLoad(Settings& s) {
     s.scrMask    = prefs.getUChar("scr_mask", 0x07) & 0x0F;
     if (s.scrMask == 0) s.scrMask = 0x01;   // carousel can never be empty
     s.mdlMask    = prefs.getUChar("mdl_mask", 0x0F) & 0x0F;
+    s.lastResetEpoch = prefs.getInt("last_reset", 0);
+    s.periodSec       = prefs.getInt("period_sec", 0);
     prefs.end();
 }
 

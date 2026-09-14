@@ -21,6 +21,8 @@ struct Settings {
     uint8_t       dwellS;       // u8, carousel dwell: 5/10/15/30 s
     uint8_t       scrMask;      // u8, carousel screen set (bit per Screen)
     uint8_t       mdlMask;      // u8, which model mascots render (bit per model)
+    int32_t       lastResetEpoch; // i32, last seen org overage-reset, 0 = never
+    int32_t       periodSec;      // i32, measured org billing period length, 0 = unknown
 };
 
 bool settingsIsProvisioned();
