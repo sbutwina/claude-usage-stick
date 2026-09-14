@@ -224,6 +224,13 @@ static void netPhaseLegacy() {
 
 // ── Setup ──────────────────────────────────────────────
 void setup() {
+    // Nothing else starts Serial: the Arduino core only auto-begins it when
+    // ARDUINO_USB_CDC_ON_BOOT is set *and* ARDUINO_USB_MODE is not, and the S3
+    // boards set both — so every Serial.printf in the firmware was a no-op.
+    // The delay gives native-USB boards time to enumerate before the first log.
+    Serial.begin(115200);
+    delay(200);
+
     halInit();
     uiInit();
 
