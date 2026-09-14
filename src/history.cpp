@@ -39,8 +39,9 @@ static void persist() {
 }
 
 void historyInit() {
-    s_hist.magic   = HIST_MAGIC;
-    s_hist.version = HIST_VERSION;
+    s_hist.magic    = HIST_MAGIC;
+    s_hist.version  = HIST_VERSION;
+    s_hist.reserved = ACCT_PRO;
     clearRing();
 
     // The data partition is labeled "spiffs" in the table; LittleFS mounts it
@@ -62,6 +63,11 @@ void historyRecord(const UsageData& u) {
     if (!u.ok) return;
     uint32_t now = (uint32_t)time(nullptr);
     if (now < TIME_SANE_EPOCH) return;
+
+    if (s_hist.reserved != u.acct) {
+        clearRing();
+        s_hist.reserved = u.acct;
+    }
 
     uint32_t absSlot = now / HIST_SLOT_SEC;
     if (s_hist.lastAbsSlot == 0) {

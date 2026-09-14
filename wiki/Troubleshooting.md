@@ -36,9 +36,11 @@ ESP32 radios are **2.4 GHz only**. If your router advertises one name for both b
 
 ### The device shows `no_usage_h_200`
 
-The request succeeded (HTTP 200), but the response carried **no unified usage headers**. This means the token is valid and the account is fine — but the plan behind it doesn't publish 5h/7d usage.
+The request succeeded (HTTP 200), but the response carried **no usage headers at all**. The device tries both the unified 5h/7d headers and the Enterprise overage headers — this error means neither set showed up, so the token is valid but the account behind it doesn't publish usage of either kind.
 
-**Enterprise and API-billed accounts don't emit these headers.** The device needs a token from a **Claude Pro or Max** subscription. Generate one with `claude setup-token` while signed into the subscription account, then redo [setup](Setup-and-Daily-Use).
+**This is typically a direct API-billed account** — not a Claude Code subscription (Pro or Max) and not an Enterprise account with an org spend limit, both of which the device supports. Generate a token with `claude setup-token` while signed into a Pro/Max or Enterprise account, then redo [setup](Setup-and-Daily-Use).
+
+To see exactly what your account returns, watch the serial console during a poll — it now dumps every rate-limit header it collected, which is the fastest way to tell what's actually coming back.
 
 ### Usage stays at 0%
 

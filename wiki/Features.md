@@ -4,7 +4,7 @@ What the device shows once it's on your desk. For how the layout changes per scr
 
 ## Live usage bars
 
-Two bars, one per rate-limit window: the **5-hour** and the **7-day**. They refresh on a configurable interval (30 s to 5 min) straight from the Anthropic API — see [How it works](How-It-Works).
+Two bars, one per rate-limit window: the **5-hour** and the **7-day**. On an Enterprise account with an organization spend limit, the same two bars relabel to **SPEND** (percent of the org's limit consumed this billing period) and **PERIOD** (percent of the billing cycle elapsed, trailing with a projected end-of-period spend — SPEND% ÷ PERIOD% — once 5% of the period has passed) — comparing the two shows whether the org is burning faster than the month is passing. They refresh on a configurable interval (30 s to 5 min) straight from the Anthropic API — see [How it works](How-It-Works).
 
 ## Reset countdowns
 

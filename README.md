@@ -15,7 +15,7 @@
 
 *No toolchain, no drivers, no clone — just Chrome, Edge or Firefox and a USB-C cable.*
 
-*5-hour & 7-day usage windows · reset countdowns · model health mascots · PIN-encrypted token · web control panel · screen carousel with 7-day chart, Anthropic news & clock (✨ Dust, v3)*
+*5-hour & 7-day usage windows (or SPEND & PERIOD on an org spend limit) · reset countdowns · model health mascots · PIN-encrypted token · web control panel · screen carousel with 7-day chart, Anthropic news & clock (✨ Dust, v3)*
 
 </div>
 
@@ -27,7 +27,7 @@ A standalone desk gadget that polls the Anthropic API and shows your Claude Code
 
 **On every board**
 
-- **Live usage bars** — the 5-hour and 7-day rate-limit windows, read straight from the `anthropic-ratelimit-unified-*` headers, refreshed every 30 s – 5 min
+- **Live usage bars** — the 5-hour and 7-day rate-limit windows, read straight from the `anthropic-ratelimit-unified-*` headers, refreshed every 30 s – 5 min (Enterprise accounts with an org spend limit get SPEND and PERIOD in the same two bars)
 - **Reset countdowns** — exactly how long until each window frees up
 - **Model health mascots** — Haiku / Sonnet / Opus / Fable from status.claude.com as blinking Clawds (Mango v2+)
 - **PIN-encrypted token** — AES-256-GCM on the device's own flash; the PIN is never stored, and 10 wrong tries wipes it

@@ -240,6 +240,9 @@ static void handleState() {
     u["h5_reset"] = g_usage.h5ResetEpoch;
     u["d7_reset"] = g_usage.d7ResetEpoch;
     u["age_s"]    = (millis() - g_lastFetchMs) / 1000;
+    u["acct"]     = g_usage.acct == ACCT_ORG ? "org" : "pro";
+    u["status"]   = g_usage.status;
+    u["proj"]     = usageProjectedPct(g_usage);
 
     JsonObject m = d["models"].to<JsonObject>();
     m["haiku"]  = g_models.haikuUp;

@@ -1,6 +1,7 @@
 #include "ui.h"
 #include "config.h"
 #include "hal.h"
+#include "app_state.h"
 #include <time.h>
 
 // Shared helper — no display calls, safe before any #ifdef
@@ -22,6 +23,19 @@ static void fmtCountdown(uint32_t epoch, char* out, size_t len) {
     if (d > 0) snprintf(out, len, "%dd%dh", d, h);
     else if (h > 0) snprintf(out, len, "%dh%02dm", h, m);
     else snprintf(out, len, "%dm", m);
+}
+
+// What a bar's right-hand slot says: a reset countdown, or — for the org PERIOD
+// bar, which has no reset of its own — the projected end-of-period spend.
+static void fmtSlot(const UsageData& u, int idx, char* out, size_t len) {
+    float proj = (idx == 1) ? usageProjectedPct(u) : -1.0f;
+    if (proj >= 0.0f) {
+        int p = (int)(proj + 0.5f);
+        if (p > 999) p = 999;
+        snprintf(out, len, "~%d%%", p);
+        return;
+    }
+    fmtCountdown(idx == 0 ? u.h5ResetEpoch : u.d7ResetEpoch, out, len);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -189,14 +203,14 @@ void uiDashboard(const UsageData& data, unsigned long lastFetchMs, int rssi, int
     }
 
     char h5rst[12], d7rst[12];
-    fmtCountdown(data.h5ResetEpoch, h5rst, sizeof(h5rst));
-    fmtCountdown(data.d7ResetEpoch, d7rst, sizeof(d7rst));
+    fmtSlot(data, 0, h5rst, sizeof(h5rst));
+    fmtSlot(data, 1, d7rst, sizeof(d7rst));
 
     u8g2.setFont(u8g2_font_5x7_tr);
 
     // ── Row 1: 5-hour window ─────────────────────────────
-    char h5buf[10];
-    snprintf(h5buf, sizeof(h5buf), "5H %.0f%%", data.h5);
+    char h5buf[12];
+    snprintf(h5buf, sizeof(h5buf), "%s %.0f%%", usageLabelShort(data, 0), data.h5);
     oledStr(0, 7, h5buf);
     int rw = u8g2.getStrWidth(h5rst);
     oledStr(72 - rw, 7, h5rst);
@@ -205,8 +219,8 @@ void uiDashboard(const UsageData& data, unsigned long lastFetchMs, int rssi, int
     oledHLine(0, 13, 72); // divider
 
     // ── Row 2: 7-day window ──────────────────────────────
-    char d7buf[10];
-    snprintf(d7buf, sizeof(d7buf), "7D %.0f%%", data.d7);
+    char d7buf[12];
+    snprintf(d7buf, sizeof(d7buf), "%s %.0f%%", usageLabelShort(data, 1), data.d7);
     oledStr(0, 20, d7buf);
     rw = u8g2.getStrWidth(d7rst);
     oledStr(72 - rw, 20, d7rst);
@@ -533,13 +547,16 @@ static void drawResetValues(GFX& g, const char* h5rst, const char* d7rst) {
 }
 
 template <class GFX>
-static void drawResetRow(GFX& g, const char* h5rst, const char* d7rst) {
+static void drawResetRow(GFX& g, const UsageData& data, const char* h5rst, const char* d7rst) {
+    char cap0[12], cap1[12];
+    snprintf(cap0, sizeof(cap0), "%s %s", usageLabelShort(data, 0), usageSlotCaption(data, 0));
+    snprintf(cap1, sizeof(cap1), "%s %s", usageLabelShort(data, 1), usageSlotCaption(data, 1));
     g.setTextColor(C_DIM, C_BG);
     g.setTextSize(1);
     g.setCursor(10, RESET_CAP_Y);
-    g.print("5H RESET");
+    g.print(cap0);
     g.setCursor(SCREEN_W / 2 + 10, RESET_CAP_Y);
-    g.print("7D RESET");
+    g.print(cap1);
     drawResetValues(g, h5rst, d7rst);
 }
 
@@ -749,10 +766,10 @@ void uiChartScreen(const HistSlot* slots, uint32_t newestEpoch,
     g.print("7-DAY USAGE");
     g.setTextColor(C_HEAD, C_BG);
     g.setCursor(SCREEN_W - 10 - 6 * 6, 22);
-    g.print("5H");
+    g.print(usageLabelShort(g_usage, 0));
     g.setTextColor(C_HEAD_DK, C_BG);
     g.setCursor(SCREEN_W - 10 - 2 * 6, 22);
-    g.print("7D");
+    g.print(usageLabelShort(g_usage, 1));
 
     const int px0 = 10, px1 = SCREEN_W - 11, py0 = 34, py1 = SCREEN_H - 34;
 
@@ -937,8 +954,8 @@ void uiClockScreen(const UsageData& data, unsigned long lastFetchMs, int rssi) {
         g.setCursor(bx + bw + 6, barY);
         g.print(ps);
     };
-    microBar(bar1X, "5H", data.h5);
-    microBar(bar2X, "7D", data.d7);
+    microBar(bar1X, usageLabelShort(data, 0), data.h5);
+    microBar(bar2X, usageLabelShort(data, 1), data.d7);
 
     UI_PUSH_DASH();
 }
@@ -1221,30 +1238,34 @@ void uiDashboard(const UsageData& data, unsigned long lastFetchMs, int rssi, int
     int barW = SCREEN_W - SX(20);
 
     char h5rst[16], d7rst[16];
-    fmtCountdown(data.h5ResetEpoch, h5rst, sizeof(h5rst));
-    fmtCountdown(data.d7ResetEpoch, d7rst, sizeof(d7rst));
+    fmtSlot(data, 0, h5rst, sizeof(h5rst));
+    fmtSlot(data, 1, d7rst, sizeof(d7rst));
 
 #ifdef MANGO_UI
 #ifdef BOARD_TDISPLAY_S3
     // Tier L: % flush-right on the bar rows; the countdowns get their own
     // size-2 row below the bars.
-    drawBar(g, SX(10), SY(24), barW, SY(10), data.h5, "5-HOUR");
-    drawBar(g, SX(10), SY(52), barW, SY(10), data.d7, "7-DAY");
-    drawResetRow(g, h5rst, d7rst);
+    drawBar(g, SX(10), SY(24), barW, SY(10), data.h5, usageLabel(data, 0));
+    drawBar(g, SX(10), SY(52), barW, SY(10), data.d7, usageLabel(data, 1));
+    drawResetRow(g, data, h5rst, d7rst);
 #else
     // Tier S: each reset countdown rides on its bar's label row — no room below.
-    drawBar(g, SX(10), SY(24), barW, SY(10), data.h5, "5-HOUR", h5rst);
-    drawBar(g, SX(10), SY(52), barW, SY(10), data.d7, "7-DAY",  d7rst);
+    drawBar(g, SX(10), SY(24), barW, SY(10), data.h5, usageLabel(data, 0), h5rst);
+    drawBar(g, SX(10), SY(52), barW, SY(10), data.d7, usageLabel(data, 1),  d7rst);
 #endif
     drawStatusPanel(g);
 #else
-    drawBar(g, SX(10), SY(24), barW, SY(10), data.h5, "5-HOUR WINDOW");
-    drawBar(g, SX(10), SY(52), barW, SY(10), data.d7, "7-DAY WINDOW");
+    drawBar(g, SX(10), SY(24), barW, SY(10), data.h5, usageLabel(data, 0));
+    drawBar(g, SX(10), SY(52), barW, SY(10), data.d7, usageLabel(data, 1));
+
+    char h5rstCap[10], d7rstCap[10];
+    snprintf(h5rstCap, sizeof(h5rstCap), "%s %s", usageLabelShort(data, 0), usageSlotCaptionShort(data, 0));
+    snprintf(d7rstCap, sizeof(d7rstCap), "%s %s", usageLabelShort(data, 1), usageSlotCaptionShort(data, 1));
 
     g.setTextColor(C_DIM, C_BG);
     g.setTextSize(TS(1));
     g.setCursor(SX(10), SY(80));
-    g.print("5H RST");
+    g.print(h5rstCap);
     g.setTextColor(C_TEXT, C_BG);
     g.setTextSize(TS(2));
     g.setCursor(SX(10), SY(92));
@@ -1253,7 +1274,7 @@ void uiDashboard(const UsageData& data, unsigned long lastFetchMs, int rssi, int
     g.setTextColor(C_DIM, C_BG);
     g.setTextSize(TS(1));
     g.setCursor(SCREEN_W / 2 + SX(10), SY(80));
-    g.print("7D RST");
+    g.print(d7rstCap);
     g.setTextColor(C_TEXT, C_BG);
     g.setTextSize(TS(2));
     g.setCursor(SCREEN_W / 2 + SX(10), SY(92));
@@ -1296,8 +1317,8 @@ void uiDashboardClock(const UsageData& data, unsigned long lastFetchMs, int rssi
 
     // Reset countdowns: repaint in place.
     char h5rst[16], d7rst[16];
-    fmtCountdown(data.h5ResetEpoch, h5rst, sizeof(h5rst));
-    fmtCountdown(data.d7ResetEpoch, d7rst, sizeof(d7rst));
+    fmtSlot(data, 0, h5rst, sizeof(h5rst));
+    fmtSlot(data, 1, d7rst, sizeof(d7rst));
 #ifdef MANGO_UI
 #ifdef BOARD_TDISPLAY_S3
     // Tier L: the countdowns live on their own row below the bars.
